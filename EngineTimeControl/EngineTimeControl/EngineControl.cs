@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using Fasterflect;
 using UnityEngine;
@@ -10,12 +11,31 @@ namespace EngineTimeControl
     {
         private ModuleEngines _module;
 
-        [UI_FloatRange(controlEnabled = true, maxValue = 10, minValue = 1, stepIncrement = 1)]
-        [KSPField(guiActive = true, guiActiveEditor = true, guiName = "Time executed", isPersistant = true)]
+        private StartState _state;
+
+
+        [UI_FloatRange(controlEnabled = true, maxValue = 100, minValue = 0, stepIncrement = 1)]
+        [KSPField(guiActive = false, guiActiveEditor = true, guiName = "Fuel percentage", isPersistant = true)]
         public float TimeExecute;
+
+        public override void OnAwake()
+        {
+            //GameEvents.onPartAttach.Add(PartAttached);
+        }
+
+        //private void PartAttached(GameEvents.HostTargetAction<Part, Part> data)
+        //{
+        //    if (data.host == part)
+        //    {
+        //        ScreenMessages.PostScreenMessage("Part attached");
+        //        CalculateFuel();
+        //    }
+        //}
 
         public override void OnStart(StartState state)
         {
+            _state = state;
+
             if (!part.Modules.OfType<ModuleEngines>().Any()) return;
 
             _module = part.Modules.OfType<ModuleEngines>().First();
@@ -25,10 +45,35 @@ namespace EngineTimeControl
                 part.Modules.Remove(this);
                 part.Modules.Add(this);
             }
-            
+
             base.OnStart(state);
 
             AttachToEvent();
+        }
+
+        private void CalculateFuel()
+        {
+            if ((_state & StartState.Editor) != StartState.Editor) return;
+            
+            var parts = EditorLogic.fetch.ship.Parts.Where(x => x.inverseStage == part.inverseStage);
+
+            var res = parts.SelectMany(x => x.Resources.list).GroupBy(x => x.resourceName).Select(x => new { key = x.Key, value = x.Sum(y => y.amount) }).ToList();
+
+            int result = 0;
+            foreach (var propellant in _module.propellants)
+            {
+                var buff = res.FirstOrDefault(x => x.key.Contains(propellant.name)).value / propellant.ratio;
+                if (buff > result) result = (int) buff;
+            }
+
+            if (Fields["TimeExecute"].uiControlEditor != null)
+            {
+                var control = Fields["TimeExecute"].uiControlEditor as UI_FloatRange;
+                if (control != null)
+                {
+                    control.maxValue = result;
+                }
+            }
         }
 
         public override void OnActive()
@@ -99,13 +144,15 @@ namespace EngineTimeControl
                 yield return new WaitForSeconds(1f);
             }
 
-            var engine = part.Modules.OfType<ModuleEngines>().FirstOrDefault();
+            //var engine = part.Modules.OfType<ModuleEngines>().FirstOrDefault();
 
-            if (engine == null) yield break;
+            //if (engine == null) yield break;
 
-            engine.allowRestart = false;
-            engine.Shutdown();
-            engine.isEnabled = false;
+            _module.allowRestart = false;
+            _module.Shutdown();
+            _module.isEnabled = false;
         }
+
+
     }
 }
